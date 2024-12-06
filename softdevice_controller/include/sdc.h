@@ -133,8 +133,17 @@ extern "C" {
 /** @brief Default ISO TX PDU buffer per stream count. */
 #define SDC_DEFAULT_ISO_TX_PDU_BUFFER_PER_STREAM_COUNT 0
 
-/** @brief Default maximum number of concurrent connections supporting CS procedure */
+/** @brief Default maximum number of concurrent connections supporting Channel Sounding procedure */
 #define SDC_DEFAULT_CS_COUNT 0
+
+/** @brief Default maximum number of antenna paths supported in Channel Sounding. */
+#define SDC_DEFAULT_CS_MAX_ANTENNA_PATHS_SUPPORTED 1
+
+/** @brief Default number of antennas supported by the local device in Channel Sounding. */
+#define SDC_DEFAULT_CS_NUM_ANTENNAS_SUPPORTED 1
+
+/** @brief Default optional support for Channel Sounding step mode-3. */
+#define SDC_DEFAULT_CS_STEP_MODE3_SUPPORTED false
 
 /** @brief Size of build revision array in bytes. */
 #define SDC_BUILD_REVISION_SIZE 20
@@ -212,22 +221,22 @@ extern "C" {
 #define SDC_MEM_QOS_CHANNEL_SURVEY (40)
 
 /** Memory required for the scanner when only supporting legacy scanning. */
-#define SDC_MEM_SCAN(buffer_count) (345 + (buffer_count) * 98)
+#define SDC_MEM_SCAN(buffer_count) (353 + (buffer_count) * 98)
 
 /** Memory required for the scanner when supporting extended scanning. */
-#define SDC_MEM_SCAN_EXT(buffer_count) (345 + (buffer_count) * 320)
+#define SDC_MEM_SCAN_EXT(buffer_count) (353 + (buffer_count) * 320)
 
 /** Additional memory required for the initiator when supporting scanning
  *  and initiating at the same time.
  */
-#define SDC_MEM_INITIATOR (320)
+#define SDC_MEM_INITIATOR (328)
 
 /** Memory required for the Filter Accept List */
 #define SDC_MEM_FAL(max_num_entries) ((max_num_entries) > 0 ? (4 + (max_num_entries) * 8) : 0)
 
 /** @brief Auxiliary defines, not to be used outside of this file. */
-#define __MEM_PER_ADV_SET_LOW(max_adv_data) ((4912+(max_adv_data)*18)/10)
-#define __MEM_PER_ADV_SET_HIGH(max_adv_data) (679+(max_adv_data))
+#define __MEM_PER_ADV_SET_LOW(max_adv_data) ((4995+(max_adv_data)*18)/10)
+#define __MEM_PER_ADV_SET_HIGH(max_adv_data) (683+(max_adv_data))
 #define __MEM_PER_PERIODIC_ADV_SET_LOW(max_adv_data) ((2658+(max_adv_data)*18)/10)
 #define __MEM_PER_PERIODIC_ADV_SET_HIGH(max_adv_data) (457+(max_adv_data))
 
@@ -337,13 +346,13 @@ extern "C" {
  *
  * @param[in] count Maximum number of concurrent connections supporting CS procedure.
  */
-#define SDC_MEM_CS(count) ((count) > 0 ? (13 + (count) * 8907) : 0)
+#define SDC_MEM_CS(count) ((count) > 0 ? (13 + (count) * 8883) : 0)
 
 /** @brief Maximum additional memory required to support Channel Sounding setup phase procedures
  *
  * @param[in] count Total number of links (central + peripheral).
  */
-#define SDC_MEM_CS_SETUP_PHASE_LINKS(count) ((count) > 0 ? (11 + (count)*315) : 0)
+#define SDC_MEM_CS_SETUP_PHASE_LINKS(count) ((count) > 0 ? (11 + (count)*339) : 0)
 
 /** @} end of sdc_mem_defines */
 
@@ -414,6 +423,8 @@ enum sdc_cfg_type
     SDC_CFG_TYPE_ISO_BUFFER_CFG,
     /** See @ref sdc_cfg_t::cs_count. */
     SDC_CFG_TYPE_CS_COUNT,
+    /** See @ref sdc_cfg_t::cs_cfg. */
+    SDC_CFG_TYPE_CS_CFG,
 };
 
 
@@ -528,6 +539,27 @@ typedef struct
     uint16_t rx_sdu_buffer_size;
 } sdc_cfg_iso_buffer_cfg_t;
 
+
+typedef struct
+{
+    /** Configures the maximum number of antenna paths supported in Channel Sounding.
+     *  Valid range [1, 4].
+     *
+     *  Default: @ref SDC_DEFAULT_CS_MAX_ANTENNA_PATHS_SUPPORTED.
+     */
+    uint8_t max_antenna_paths_supported;
+    /** Configures the number of antennas supported by the local device in Channel Sounding.
+     *  Valid range [1, @ref max_antenna_paths_supported].
+     *
+     *  Default: @ref SDC_DEFAULT_CS_NUM_ANTENNAS_SUPPORTED.
+     */
+    uint8_t num_antennas_supported;
+    /** Configures support of optional step mode-3 in Channel Sounding.
+     *
+     *  Default: @ref SDC_DEFAULT_CS_STEP_MODE3_SUPPORTED.
+     */
+    bool step_mode3_supported;
+} sdc_cfg_cs_cfg_t;
 
 /** @brief SoftDevice Controller configuration.  */
 typedef union
@@ -662,6 +694,11 @@ typedef union
      * Default: @ref SDC_DEFAULT_CS_COUNT.
      */
     sdc_cfg_role_count_t cs_count;
+    /** Configures the capabilities enabled in the Channel Sounding feature.
+     *
+     *  Default: See @ref sdc_cfg_cs_cfg_t.
+     */
+    sdc_cfg_cs_cfg_t cs_cfg;
 } sdc_cfg_t;
 
 
