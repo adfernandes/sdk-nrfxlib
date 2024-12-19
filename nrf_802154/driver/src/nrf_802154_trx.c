@@ -176,6 +176,13 @@ extern uint32_t SystemCoreClock;
 
 #endif
 
+#if defined(NRF54L_SERIES)
+/// Flag that informs if the disable operation had to be repeated forcefully since the last trx enable.
+static volatile bool g_nrf_802154_trx_disable_repeat_was_needed;
+/// Increments whenever repeating disable operation forcefully happens.
+static uint16_t g_nrf_802154_trx_disable_repeat_counter;
+#endif
+
 /// Common parameters for the FEM handling.
 static const mpsl_fem_event_t m_activate_rx_cc0 =
 {
@@ -267,6 +274,18 @@ static void rx_flags_clear(void)
 
 static void * volatile mp_receive_buffer;
 
+/** Force the TIMER to be stopped and count from 0. */
+static inline void timer_stop_and_clear(void)
+{
+#ifdef NRF52_SERIES
+    // Anomaly 78: use SHUTDOWN instead of STOP.
+    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+#else
+    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_STOP);
+    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_CLEAR);
+#endif
+}
+
 static void txpower_set(int8_t txpower)
 {
 #ifdef NRF53_SERIES
@@ -287,7 +306,7 @@ static void txpower_set(int8_t txpower)
 /** Initialize TIMER peripheral used by the driver. */
 static void nrf_timer_init(void)
 {
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
     nrf_timer_mode_set(NRF_802154_TIMER_INSTANCE, NRF_TIMER_MODE_TIMER);
     nrf_timer_bit_width_set(NRF_802154_TIMER_INSTANCE, NRF_TIMER_BIT_WIDTH_32);
     timer_frequency_set_1mhz();
@@ -364,6 +383,10 @@ static inline void wait_until_radio_is_disabled(void)
     bool radio_is_disabled = false;
     bool repeat            = false;
 
+#if defined(NRF54L_SERIES)
+    g_nrf_802154_trx_disable_repeat_was_needed = false;
+#endif
+
     do
     {
         /* RADIO should enter DISABLED state after no longer than RX ramp-down time or TX ramp-down
@@ -400,6 +423,8 @@ static inline void wait_until_radio_is_disabled(void)
              */
             radio_force_disable();
             repeat = true;
+            g_nrf_802154_trx_disable_repeat_was_needed = true;
+            g_nrf_802154_trx_disable_repeat_counter++;
         }
         else
         {
@@ -624,7 +649,7 @@ static void fem_for_lna_set(void)
 static void fem_for_lna_reset(void)
 {
     mpsl_fem_lna_configuration_clear();
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
     nrf_timer_shorts_disable(NRF_802154_TIMER_INSTANCE, NRF_TIMER_SHORT_COMPARE0_STOP_MASK);
     nrf_802154_trx_ppi_for_fem_clear();
     /* There is no need to explicitly deactivate LNA pin during reset as mpsl_fem_abort_set is used
@@ -656,7 +681,7 @@ static void fem_for_pa_set(mpsl_fem_pa_power_control_t pa_power_control)
 static void fem_for_pa_reset(void)
 {
     mpsl_fem_pa_configuration_clear();
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
     nrf_802154_trx_ppi_for_fem_clear();
     mpsl_fem_deactivate_now(MPSL_FEM_PA);
 }
@@ -719,7 +744,7 @@ static void fem_for_tx_reset(bool cca)
 
     nrf_802154_trx_ppi_for_fem_clear();
     nrf_802154_trx_ppi_for_ramp_up_propagation_delay_wait();
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 }
 
 #if defined(NRF52840_XXAA) || \
@@ -869,6 +894,10 @@ void nrf_802154_trx_enable(void)
     nrf_802154_log_function_enter(NRF_802154_LOG_VERBOSITY_LOW);
 
     NRF_802154_ASSERT(m_trx_state == TRX_STATE_DISABLED);
+
+#if defined(NRF54L_SERIES)
+    g_nrf_802154_trx_disable_repeat_was_needed = false;
+#endif
 
     nrf_timer_init();
     nrf_radio_reset();
@@ -1045,7 +1074,7 @@ void nrf_802154_trx_disable(void)
         nrf_timer_shorts_disable(NRF_802154_TIMER_INSTANCE,
                                  NRF_TIMER_SHORT_COMPARE0_STOP_MASK |
                                  NRF_TIMER_SHORT_COMPARE1_STOP_MASK);
-        nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+        timer_stop_and_clear();
 
 #if defined(RADIO_POWER_POWER_Msk)
         nrf_radio_power_set(NRF_RADIO, true);
@@ -1306,8 +1335,7 @@ void nrf_802154_trx_receive_frame(uint8_t                                 bcc,
     uint32_t ints_to_enable = 0U;
     uint32_t shorts         = SHORTS_RX;
 
-    // Force the TIMER to be stopped and count from 0.
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 
     m_trx_state = TRX_STATE_RXFRAME;
 
@@ -1400,7 +1428,12 @@ void nrf_802154_trx_receive_frame(uint8_t                                 bcc,
     }
     else
     {
+#if !defined(NRF54L_SERIES)
         delta_time = 1;
+#else
+        // Avoid value 1 due to MLTPAN-22 and MLTPAN-24
+        delta_time = 2;
+#endif
         nrf_timer_cc_set(NRF_802154_TIMER_INSTANCE, NRF_TIMER_CC_CHANNEL0, delta_time);
     }
 
@@ -1543,8 +1576,7 @@ void nrf_802154_trx_transmit_frame(const void                            * p_tra
     uint32_t ints_to_enable = 0U;
     bool     cca            = cca_attempts > 0;
 
-    // Force the TIMER to be stopped and count from 0.
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 
     m_trx_state              = TRX_STATE_TXFRAME;
     m_transmit_with_cca      = cca;
@@ -1646,7 +1678,7 @@ bool nrf_802154_trx_transmit_ack(const void * p_transmit_buffer, uint32_t delay_
     // Set TIMER's CC to the moment when ramp-up should occur.
     if (delay_us <= TXRU_TIME + EVENT_LAT)
     {
-        nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+        timer_stop_and_clear();
         nrf_802154_log_function_exit(NRF_802154_LOG_VERBOSITY_LOW);
         return result;
     }
@@ -1763,7 +1795,7 @@ bool nrf_802154_trx_transmit_ack(const void * p_transmit_buffer, uint32_t delay_
         mpsl_fem_pa_configuration_clear();
         mpsl_fem_deactivate_now(MPSL_FEM_PA);
 
-        nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+        timer_stop_and_clear();
 
         /* No callbacks will be called */
 #else // !NRF_802154_TRX_TEST_MODE_ALLOW_LATE_TX_ACK
@@ -1900,7 +1932,7 @@ void nrf_802154_trx_abort(void)
             break;
 
         case TRX_STATE_RXFRAME_FINISHED:
-            nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+            timer_stop_and_clear();
             m_trx_state = TRX_STATE_FINISHED;
             break;
 
@@ -1986,7 +2018,7 @@ bool nrf_802154_trx_go_idle(void)
             break;
 
         case TRX_STATE_RXFRAME_FINISHED:
-            nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+            timer_stop_and_clear();
         /* Fallthrough */
 
         case TRX_STATE_FINISHED:
@@ -2025,8 +2057,7 @@ static void receive_frame_abort(void)
 
     m_flags.missing_receive_buffer = false;
     radio_robust_disable();
-
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 
     m_trx_state = TRX_STATE_FINISHED;
 
@@ -2077,7 +2108,7 @@ static void rxack_finish(void)
     rxack_finish_disable_ppis();
     rxack_finish_disable_ints();
     rxack_finish_disable_fem_activation();
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
     nrf_radio_shorts_set(NRF_RADIO, SHORTS_IDLE);
     m_flags.missing_receive_buffer = false;
 
@@ -2103,8 +2134,7 @@ static void receive_ack_abort(void)
     m_flags.missing_receive_buffer = false;
 
     radio_robust_disable();
-
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 
     m_trx_state = TRX_STATE_FINISHED;
 
@@ -2467,7 +2497,7 @@ static void irq_handler_crcerror(void)
         case TRX_STATE_RXFRAME:
             rxframe_finish();
             /* On crc error TIMER is not needed, no ACK may be sent */
-            nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+            timer_stop_and_clear();
             m_trx_state = TRX_STATE_FINISHED;
             nrf_802154_trx_receive_frame_crcerror();
             break;
@@ -2625,8 +2655,7 @@ static void txack_finish(void)
                              NRF_TIMER_SHORT_COMPARE0_STOP_MASK |
                              NRF_TIMER_SHORT_COMPARE1_STOP_MASK);
 
-    // Anomaly 78: use SHUTDOWN instead of STOP and CLEAR.
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 
     nrf_radio_int_disable(NRF_RADIO,
                           NRF_RADIO_INT_PHYEND_MASK | NRF_RADIO_INT_ADDRESS_MASK |
@@ -2657,8 +2686,7 @@ static void transmit_ack_abort(void)
                              NRF_TIMER_SHORT_COMPARE0_STOP_MASK |
                              NRF_TIMER_SHORT_COMPARE1_STOP_MASK);
 
-    // Anomaly 78: use SHUTDOWN instead of STOP and CLEAR.
-    nrf_timer_task_trigger(NRF_802154_TIMER_INSTANCE, NRF_TIMER_TASK_SHUTDOWN);
+    timer_stop_and_clear();
 
     nrf_radio_int_disable(NRF_RADIO, NRF_RADIO_INT_PHYEND_MASK | NRF_RADIO_INT_ADDRESS_MASK);
 

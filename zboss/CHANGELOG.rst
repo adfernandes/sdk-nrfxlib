@@ -9,6 +9,38 @@ Changelog
 
 All notable changes to this project in the |NCS| are documented in this file.
 
+nRF Connect SDK v2.9.0
+**********************
+
+Updated
+=======
+
+* The ZBOSS stack to version ``3.11.6.0+5.1.7``.
+  For detailed information, see `ZBOSS stack release notes`_ for the |NCS| v2.9.0 release.
+
+Bug fixes
+=========
+
+* Fixed generating Extended Response for certain address requests on ZED.
+* Fixed an issue where ZR device sometimes would join to network with Extended PAN ID equal to 0x0000000000000000 after factory reset.
+* Fixed a known issue where ZR would not accept new child devices if the maximum number of children was reached.
+* Fixed some incorrect diagnostics cluster attributes macro names.
+* Fixed an issue where a device would stop sending/receiving frames after being jammed.
+
+nRF Connect SDK v2.8.0
+**********************
+
+Updated
+=======
+
+* The ZBOSS stack to version ``3.11.5.0+5.1.6``.
+  For detailed information, see `ZBOSS stack release notes`_ for the |NCS| v2.8.0 release.
+
+Bug fixes
+=========
+
+* Fixed the traces mask used to build the traces version of the libraries, so that more subsystems are enabled when the :kconfig:option:`CONFIG_ZIGBEE_ENABLE_TRACES` Kconfig option is enabled.
+
 nRF Connect SDK v2.7.0
 **********************
 
