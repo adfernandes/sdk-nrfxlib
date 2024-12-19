@@ -518,7 +518,7 @@ struct nrf_modem_dect_phy_hdr_type_2 {
 	 */
 	uint8_t num_spatial_streams : 2;
 	/**
-	 * @brief Feedback info
+	 * @brief Feedback info.
 	 */
 	union nrf_modem_dect_phy_feedback feedback;
 } __nrf_modem_attr_packed;
@@ -537,7 +537,13 @@ union nrf_modem_dect_phy_hdr {
 	 * @brief Header type 2.
 	 */
 	uint8_t type_2[10];
+	/**
+	 * @brief Header type 1, bitfield accessor.
+	 */
 	struct nrf_modem_dect_phy_hdr_type_1 hdr_type_1;
+	/**
+	 * @brief Header type 2, bitfield accessor.
+	 */
 	struct nrf_modem_dect_phy_hdr_type_2 hdr_type_2;
 };
 
@@ -1249,13 +1255,37 @@ struct nrf_modem_dect_phy_init_params {
 	 * Maximum supported value: 5000000.
 	 */
 	uint32_t harq_rx_expiry_time_us;
-	/**
-	 * @brief Number of HARQ processes.
-	 *
-	 * The HARQ reception buffer is divided equally between processes.
-	 * Supported values: 1, 2, 4, 8.
-	 */
-	uint8_t harq_rx_process_count;
+	struct {
+		/**
+		 * @brief Number of HARQ processes.
+		 *
+		 * The HARQ reception buffer is divided equally between processes.
+		 * Supported values: 1, 2, 4, 8.
+		 */
+		uint8_t harq_rx_process_count : 4;
+		/**
+		 * @brief Reserved for future use.
+		 */
+		uint8_t reserved : 3;
+		/**
+		 * @brief Band 4 support.
+		 *
+		 * 1 - Enables band 4 operation.
+		 * 0 - Disables band 4 operation.
+		 *
+		 * Band 4 support is only available for nRF9151 devices.
+		 *
+		 * @warning
+		 * When operating on band 4, carriers outside the [525, 551] range
+		 * shall not be used as they interfere with other radio devices,
+		 * including LTE devices, car keys, and others.
+		 *
+		 * @note
+		 * Band 4 support may only be toggled when de-initialized.
+		 * Toggling band 4 support when already initialized is not supported.
+		 */
+		uint8_t band4_support : 1;
+	};
 };
 
 /**

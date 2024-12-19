@@ -7,8 +7,18 @@ Changelog
    :local:
    :depth: 2
 
-Main Branch
-***********
+All the notable changes to this project are documented on this page.
+
+nRF Connect SDK v2.9.0
+**********************
+
+Bug fixes
+=========
+* Fixed an issue where the functions :c:func:`mpsl_clock_hfclk_request` and :c:func:`mpsl_clock_hfclk_release` could end up not working after :c:func:`mpsl_uninit`
+  This could happen if LFRC was used as clock source (DRGN-23325)
+
+nRF Connect SDK v2.8.0
+**********************
 
 Changes
 =======
@@ -27,6 +37,10 @@ Added
 * Added production support for the nRF54L Series. (DRGN-23325)
 * Added :c:func:`mpsl_fem_enable` to allow turning on the Front-End Module earlier than through a call to :c:func:`mpsl_fem_pa_configuration_set` (KRKNWK-19275).
   Added implementation of :c:func:`mpsl_fem_enable` for nRF2220 Front-End Module.
+* Added the defines :c:macro:`MPSL_PPI_CHANNELS_USED_MASK`, :c:macro:`MPSL_DPPIC_CHANNELS_USED_MASK`, :c:macro:`MPSL_DPPIC10_CHANNELS_USED_MASK`, :c:macro:`MPSL_DPPIC20_CHANNELS_USED_MASK`, and :c:macro:`MPSL_DPPIC020_CHANNELS_USED_MASK`.
+  These represent the same resources as ``MPSL_RESERVED_PPI_CHANNELS``, but also specify the DPPI controller the channels belongs to.
+* Added the defines :c:macro:`MPSL_PPIB11_CHANNELS_USED_MASK`, :c:macro:`MPSL_PPIB21_CHANNELS_USED_MASK`, and :c:macro:`MPSL_IPCT130_CHANNELS_USED_MASK`.
+  These represent the PPIB and IPCT resources used.
 
 nRF Connect SDK v2.7.0
 **********************

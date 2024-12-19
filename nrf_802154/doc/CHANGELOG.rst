@@ -10,9 +10,13 @@ Changelog
 All notable changes to this project are documented in this file.
 See also :ref:`nrf_802154_limitations` for permanent limitations.
 
-Main branch - nRF 802.15.4 Radio Driver
-***************************************
+nRF Connect SDK v2.9.0 - nRF 802.15.4 Radio Driver
+**************************************************
 
+Added
+=====
+
+* Added support for the nRF54L05 and nRF54L10 SoCs.
 
 nRF Connect SDK v2.8.0 - nRF 802.15.4 Radio Driver
 **************************************************
@@ -284,10 +288,10 @@ Added
 Notable Changes
 ===============
 
-* The release notes of the legacy versions of the Radio Driver are available in the `Radio Driver section`_ of the Infocenter.
+* The release notes of the legacy versions of the Radio Driver are available in the Changelog for 802.15.4 Radio Driver v1.10.0.
 * The changelog of the previous versions of the 802.15.4 SL library is now located at the bottom of this page.
 * The Radio Driver documentation will now also include the Service Layer documentation.
-* Future versions of the Radio Driver and the Service Layer will follow NCS version tags.
+* Future versions of the Radio Driver and the Service Layer will follow |NCS| version tags.
 * The 802.15.4 Radio Driver API has been modified to support more than a single delayed reception window simultaneously.
   The :c:func:`nrf_802154_receive_at`, :c:func:`nrf_802154_receive_at_cancel`, and :c:func:`nrf_802154_receive_failed` functions take an additional parameter that identifies a given reception window unambiguously.
 

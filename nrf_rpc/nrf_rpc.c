@@ -85,17 +85,29 @@ struct init_packet_data {
 	const char *strid;   /* Remote group unique identifier. */
 };
 
-enum internal_pool_data_type {
-	NRF_RPC_INITIALIZATION,
-	NRF_RPC_ERROR
+enum internal_task_type {
+	NRF_RPC_TASK_GROUP_INIT,
+	NRF_RPC_TASK_RECV_ERROR
 };
 
-struct internal_pool_data {
-	enum internal_pool_data_type type;
-	const struct nrf_rpc_group *group;
-	int err;
-	uint8_t hdr_id;
-	uint8_t hdr_type;
+struct internal_task {
+	enum internal_task_type type;
+
+	union {
+		struct {
+			const struct nrf_rpc_group *group;
+			bool first_init;
+			bool needs_reply;
+			bool signal_groups_init_event;
+		} group_init;
+
+		struct {
+			const struct nrf_rpc_group *group;
+			int err;
+			uint8_t hdr_id;
+			uint8_t hdr_type;
+		} recv_error;
+	};
 };
 
 /* Pool of statically allocated command contexts. */
@@ -115,7 +127,11 @@ static bool is_initialized;
 /* Error handler provided to the init function. */
 static nrf_rpc_err_handler_t global_err_handler;
 
-static struct internal_pool_data internal_data;
+/* Bound group handler provided to the init function. */
+static nrf_rpc_group_bound_handler_t global_bound_handler;
+
+static struct internal_task internal_task;
+static struct nrf_rpc_os_event internal_task_consumed;
 
 /* Array with all defiend groups */
 NRF_RPC_AUTO_ARR(nrf_rpc_groups_array, "grp");
@@ -360,19 +376,38 @@ static inline bool packet_validate(const uint8_t *packet)
 
 static void internal_tx_handler(void)
 {
-	struct internal_pool_data copy = internal_data;
+	struct internal_task task = internal_task;
+	nrf_rpc_os_event_set(&internal_task_consumed);
 
-	nrf_rpc_os_event_set(&copy.group->data->decode_done_event);
+	switch (task.type) {
+	case NRF_RPC_TASK_GROUP_INIT: {
+		const struct nrf_rpc_group *group = task.group_init.group;
 
-	if (copy.type == NRF_RPC_INITIALIZATION) {
-		if (group_init_send(copy.group)) {
+		if (task.group_init.needs_reply && group_init_send(group)) {
 			NRF_RPC_ERR("Failed to send group init packet for group id: %d strid: %s",
-				    copy.group->data->src_group_id, copy.group->strid);
+				    group->data->src_group_id, group->strid);
 		}
-	}
 
-	if (copy.type == NRF_RPC_ERROR) {
-		nrf_rpc_err(copy.err, NRF_RPC_ERR_SRC_RECV, copy.group, copy.hdr_id, copy.hdr_type);
+		if (task.group_init.first_init || task.group_init.needs_reply) {
+			if (group->bound_handler != NULL) {
+				group->bound_handler(group);
+			}
+
+			if (global_bound_handler != NULL) {
+				global_bound_handler(group);
+			}
+		}
+
+		if (task.group_init.signal_groups_init_event) {
+			nrf_rpc_os_event_set(&groups_init_event);
+		}
+
+		break;
+	}
+	case NRF_RPC_TASK_RECV_ERROR:
+		nrf_rpc_err(task.recv_error.err, NRF_RPC_ERR_SRC_RECV, task.recv_error.group,
+			    task.recv_error.hdr_id, task.recv_error.hdr_type);
+		break;
 	}
 }
 
@@ -389,17 +424,20 @@ static int transport_init(nrf_rpc_tr_receive_handler_t receive_cb)
 
 		NRF_RPC_ASSERT(transport != NULL);
 
-		err = transport->api->init(transport, receive_cb, NULL);
-		if (err) {
-			NRF_RPC_ERR("Failed to initialize transport, err: %d", err);
-			continue;
-		}
-
+		/* Initialize all dependencies of `receive_handler` before calling the transport
+		 * init to avoid possible data race if `receive_handler` was invoked before this
+		 * function was completed. */
 		if (auto_free_rx_buf(transport)) {
 			err = nrf_rpc_os_event_init(&data->decode_done_event);
 			if (err < 0) {
 				continue;
 			}
+		}
+
+		err = transport->api->init(transport, receive_cb, NULL);
+		if (err) {
+			NRF_RPC_ERR("Failed to initialize transport, err: %d", err);
+			continue;
 		}
 
 		group->data->transport_initialized = true;
@@ -546,7 +584,7 @@ static uint8_t parse_incoming_packet(struct nrf_rpc_cmd_ctx *cmd_ctx,
 /* Thread pool callback */
 static void execute_packet(const uint8_t *packet, size_t len)
 {
-	if (packet == (const uint8_t *)&internal_data) {
+	if (packet == (const uint8_t *)&internal_task) {
 		internal_tx_handler();
 	} else {
 		parse_incoming_packet(NULL, packet, len);
@@ -619,7 +657,8 @@ static int init_packet_handle(struct header *hdr, const struct nrf_rpc_group **g
 	struct init_packet_data init_data = {0};
 	struct nrf_rpc_group_data *group_data;
 	bool first_init;
-	bool wait_on_init;
+	bool signal_groups_init_event = false;
+	bool needs_reply;
 
 	*group = NULL;
 
@@ -649,34 +688,41 @@ static int init_packet_handle(struct header *hdr, const struct nrf_rpc_group **g
 	group_data = (*group)->data;
 	first_init = group_data->dst_group_id == NRF_RPC_ID_UNKNOWN;
 	group_data->dst_group_id = hdr->src_group_id;
-	wait_on_init = (*group)->flags & NRF_RPC_FLAGS_WAIT_ON_INIT;
-	nrf_rpc_group_bound_handler_t bound_handler = (*group)->bound_handler;
 
 	NRF_RPC_DBG("Found corresponding local group. Remote id: %d, Local id: %d",
-		    hdr->src_group_id, group_data->src_group_id);
+		    group_data->dst_group_id, group_data->src_group_id);
 
-	if (bound_handler != NULL) {
-		bound_handler(*group);
-	}
-
-	if (first_init && wait_on_init) {
+	if (first_init && (*group)->flags & NRF_RPC_FLAGS_WAIT_ON_INIT) {
 		++initialized_group_count;
 
-		if (initialized_group_count == waiting_group_count) {
-			/* All groups are initialized. */
-			nrf_rpc_os_event_set(&groups_init_event);
-		}
+		/*
+		 * If this is the last group that nrf_rpc_init() is waiting for, use the async task
+		 * to signal the corresponding event and unblock the waiting thread.
+		 */
+		signal_groups_init_event = (initialized_group_count == waiting_group_count);
 	}
 
-	if (hdr->dst_group_id == NRF_RPC_ID_UNKNOWN && (*group)->data->transport_initialized) {
-		/*
-		 * If remote processor does not know our group id, send an init packet back,
-		 * since it might have missed our original init packet.
-		 */
-		internal_data.type = NRF_RPC_INITIALIZATION;
-		internal_data.group = *group;
-		nrf_rpc_os_thread_pool_send((const uint8_t *)&internal_data, sizeof(internal_data));
-		nrf_rpc_os_event_wait(&(*group)->data->decode_done_event, NRF_RPC_OS_WAIT_FOREVER);
+	/*
+	 * If the remote processor does not know our group id, send an init packet back as
+	 * either we are not an initiator, which is indicated by NRF_RPC_FLAGS_INITIATOR
+	 * flag, or the remote has missed our init packet.
+	 */
+	needs_reply = (hdr->dst_group_id == NRF_RPC_ID_UNKNOWN);
+
+	/*
+	 * Spawn the async task only if necessary. The async task is used to avoid sending the init
+	 * reply in the transport receive thread. The application is also notified about the group
+	 * initialization from within the task to ensure that when this happens the init reply has
+	 * already been sent and the remote is ready to receive nRF RPC commands.
+	 */
+	if (first_init || needs_reply || signal_groups_init_event) {
+		internal_task.type = NRF_RPC_TASK_GROUP_INIT;
+		internal_task.group_init.group = *group;
+		internal_task.group_init.first_init = first_init;
+		internal_task.group_init.needs_reply = needs_reply;
+		internal_task.group_init.signal_groups_init_event = signal_groups_init_event;
+		nrf_rpc_os_thread_pool_send((const uint8_t *)&internal_task, sizeof(internal_task));
+		nrf_rpc_os_event_wait(&internal_task_consumed, NRF_RPC_OS_WAIT_FOREVER);
 	}
 
 	return 0;
@@ -710,6 +756,12 @@ static void receive_handler(const struct nrf_rpc_tr *transport, const uint8_t *p
 			err = -NRF_EBADMSG;
 			goto cleanup_and_exit;
 		}
+
+		/* Mark the transport as initialized in case the first packet arrives sooner than
+		 * `nrf_rpc_init` does that. Without this, an attempt to allocate a buffer for the
+		 * response to this packet would fail.
+		 */
+		group->data->transport_initialized = true;
 	}
 
 	NRF_RPC_DBG("Received %d bytes packet from %d to %d, type 0x%02X, "
@@ -801,13 +853,13 @@ cleanup_and_exit:
 	}
 
 	if (err < 0) {
-		internal_data.type = NRF_RPC_ERROR;
-		internal_data.group = group;
-		internal_data.err = err;
-		internal_data.hdr_id = hdr.id;
-		internal_data.hdr_type = hdr.type;
-		nrf_rpc_os_thread_pool_send((const uint8_t *)&internal_data, sizeof(internal_data));
-		nrf_rpc_os_event_wait(&group->data->decode_done_event, NRF_RPC_OS_WAIT_FOREVER);
+		internal_task.type = NRF_RPC_TASK_RECV_ERROR;
+		internal_task.recv_error.group = group;
+		internal_task.recv_error.err = err;
+		internal_task.recv_error.hdr_type = hdr.type;
+		internal_task.recv_error.hdr_id = hdr.id;
+		nrf_rpc_os_thread_pool_send((const uint8_t *)&internal_task, sizeof(internal_task));
+		nrf_rpc_os_event_wait(&internal_task_consumed, NRF_RPC_OS_WAIT_FOREVER);
 	}
 }
 
@@ -1034,6 +1086,11 @@ void nrf_rpc_rsp_no_err(const struct nrf_rpc_group *group, uint8_t *packet, size
 
 /* ======================== Common API functions ======================== */
 
+void nrf_rpc_set_bound_handler(nrf_rpc_group_bound_handler_t bound_handler)
+{
+	global_bound_handler = bound_handler;
+}
+
 int nrf_rpc_init(nrf_rpc_err_handler_t err_handler)
 {
 	int err;
@@ -1078,6 +1135,11 @@ int nrf_rpc_init(nrf_rpc_err_handler_t err_handler)
 	}
 
 	err = nrf_rpc_os_event_init(&groups_init_event);
+	if (err < 0) {
+		return err;
+	}
+
+	err = nrf_rpc_os_event_init(&internal_task_consumed);
 	if (err < 0) {
 		return err;
 	}
