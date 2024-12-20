@@ -9,8 +9,21 @@ Changelog
 
 All notable changes to this project are documented in this file.
 
-nrf_modem
-*********
+nrf_modem 2.9.0
+***************
+
+Sockets
+=======
+
+* Updated the :c:func:`nrf_send` and :c:func:`nrf_sendto` functions to correctly set ``errno`` when the socket is closed during a send operation with :c:macro:`NRF_MSG_WAITACK`.
+
+DECT NR+
+========
+
+* Added a field to the :c:struct:`nrf_modem_dect_phy_init_params` struct to control band 4 support for nRF9151 devices.
+
+nrf_modem 2.8.0
+***************
 
 Core library
 ============
@@ -324,7 +337,7 @@ Bootloader
 nrf_modem 2.2.1
 ***************
 
-* Added the ``MODEM_DFU_RESULT_VOLTAGE_LOW`` result to :c:func:`nrf_modem_init()` function.
+* Added the ``MODEM_DFU_RESULT_VOLTAGE_LOW`` result to :c:func:`nrf_modem_init` function.
   The new value is returned when the voltage is too low for the modem firmware to execute the scheduled modem firmware update.
   The application can retry the operation by re-initializing the modem when the voltage has increased.
   Requires modem firmware v1.3.4 or newer.
@@ -333,11 +346,11 @@ nrf_modem 2.2.1
 nrf_modem 2.2.0
 ***************
 
-* Added a ``timeout`` parameter to the :c:func:`nrf_modem_trace_get()` function.
+* Added a ``timeout`` parameter to the :c:func:`nrf_modem_trace_get` function.
 * Fixed an issue when compiling the :file:`nrf_modem.h` header in C++.
 * The Delta DFU interface (:file:`nrf_modem_delta_dfu.h`) is now thread safe.
-* Fixed possible race conditions in the :c:func:`nrf_modem_init()` and :c:func:`nrf_modem_shutdown()` functions.
-* Fixed a bug in :c:func:`nrf_listen()` function that let the queue of incoming connection requests be of size one.
+* Fixed possible race conditions in the :c:func:`nrf_modem_init` and :c:func:`nrf_modem_shutdown` functions.
+* Fixed a bug in :c:func:`nrf_listen` function that let the queue of incoming connection requests be of size one.
 * The :c:data:`NRF_MODEM_GNSS_EVT_BLOCKED` event is now sent only when the GNSS stack does not get any runtime due to LTE activity, whereas earlier it could also be sent when the GNSS stack average runtime was too short.
 * Removed the usage of the application software interrupt. The library uses only the IPC peripheral interrupt now.
 * Removed the :c:func:`nrf_modem_application_irq_handler` function.
