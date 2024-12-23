@@ -9,14 +9,14 @@ Changelog
 
 All the notable changes to this project are documented on this page.
 
-nRF Connect SDK v2.7.99
-***********************
+nRF Connect SDK v2.8.0
+**********************
 
 Changes
 =======
 
 * Enabled zcbor's :c:member:`stop_on_error` flag before decoding the CBOR payload of an nRF RPC packet.
-  When this flag is set, zcbor stops decoding subsequent data items in the case of decoding failure unless the error is explicitly cleared with the :c:func:`zcbor_pop_error()` function.
+  When this flag is set, zcbor stops decoding subsequent data items in the case of decoding failure unless the error is explicitly cleared with the :c:func:`zcbor_pop_error` function.
 
 nRF Connect SDK v2.5.0
 **********************
